@@ -57,7 +57,7 @@ export default function NewMedicalRecordPage() {
           </select>
         </div>
         <div>
-          <label className="block text-sm font-medium mb-1">주소 (Chief Complaint)</label>
+          <label className="block text-sm font-medium mb-1">주증상 (Chief Complaint)</label>
           <Input value={chiefComplaint} onChange={(e) => setChiefComplaint(e.target.value)} placeholder="주요 증상" />
         </div>
         <div>

@@ -73,7 +73,7 @@ export default function MedicalRecordDetailPage() {
             </select>
           </div>
           <div>
-            <label className="block text-sm font-medium mb-1">주소 (Chief Complaint)</label>
+            <label className="block text-sm font-medium mb-1">주증상 (Chief Complaint)</label>
             <Input value={chiefComplaint} onChange={(e) => setChiefComplaint(e.target.value)} />
           </div>
           <div>
@@ -123,7 +123,7 @@ export default function MedicalRecordDetailPage() {
 
         {record.chief_complaint && (
           <div>
-            <span className="text-sm text-muted-foreground">주소 (C/C)</span>
+            <span className="text-sm text-muted-foreground">주증상 (C/C)</span>
             <p>{record.chief_complaint}</p>
           </div>
         )}

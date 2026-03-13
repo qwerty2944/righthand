@@ -39,7 +39,7 @@ export default function MedicalRecordsPage() {
       <div className="relative max-w-sm">
         <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
         <Input
-          placeholder="주소/진단으로 검색..."
+          placeholder="주증상/진단으로 검색..."
           className="pl-9"
           value={search}
           onChange={(e) => setSearch(e.target.value)}
@@ -49,7 +49,7 @@ export default function MedicalRecordsPage() {
         <TableHeader>
           <TableRow>
             <TableHead>날짜</TableHead>
-            <TableHead>주소 (C/C)</TableHead>
+            <TableHead>주증상 (C/C)</TableHead>
             <TableHead>진단 (A)</TableHead>
             <TableHead>상태</TableHead>
           </TableRow>

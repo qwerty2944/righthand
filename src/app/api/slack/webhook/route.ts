@@ -145,20 +145,36 @@ async function fetchClinicData(
   return patientDetails.join("\n\n");
 }
 
+async function isDuplicateEvent(admin: ReturnType<typeof createAdminClient>, eventTs: string): Promise<boolean> {
+  const { data } = await (admin as any)
+    .from("slack_event_log")
+    .select("id")
+    .eq("event_ts", eventTs)
+    .limit(1);
+  return (data?.length ?? 0) > 0;
+}
+
 async function handleQuestion(
   event: any,
 ): Promise<void> {
   const botToken = process.env.SLACK_BOT_TOKEN;
-  if (!botToken) {
-    console.error("SLACK_BOT_TOKEN not set");
-    return;
-  }
+  if (!botToken) return;
 
   try {
     const admin = createAdminClient();
 
-    // Get clinic ID (single-tenant: use first clinic)
+    // DB-based deduplication (Vercel serverless is stateless)
+    if (await isDuplicateEvent(admin, event.ts)) return;
+
+    // Log immediately to prevent duplicates
     const clinicId = await getClinicId(admin);
+    await (admin as any).from("slack_event_log").insert({
+      clinic_id: clinicId,
+      event_type: event.type,
+      event_ts: event.ts,
+      event_data: event,
+    }).catch(() => {});
+
     if (!clinicId) {
       await postSlackMessage(botToken, event.channel, event.ts, "등록된 클리닉이 없습니다.");
       return;
@@ -184,15 +200,7 @@ ${clinicData}
 ${query}`;
 
     const answer = await askGemini(prompt);
-
     await postSlackMessage(botToken, event.channel, event.ts, answer);
-
-    // Log event (best effort)
-    await (admin as any).from("slack_event_log").insert({
-      clinic_id: clinicId,
-      event_type: event.type,
-      event_data: event,
-    }).then(() => {}).catch(() => {});
   } catch (err: unknown) {
     console.error("handleQuestion error:", err);
     const message = err instanceof Error ? err.message : String(err);
@@ -204,8 +212,6 @@ ${query}`;
     ).catch(() => {});
   }
 }
-
-const processedEvents = new Set<string>();
 
 export async function POST(request: NextRequest): Promise<NextResponse> {
   const body = await request.text();
@@ -219,29 +225,14 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     return NextResponse.json({ error: "Invalid signature" }, { status: 401 });
   }
 
-  // Ignore Slack retries to prevent duplicate responses
+  // Ignore Slack retries
   if (request.headers.get("x-slack-retry-num")) {
     return NextResponse.json({ ok: true });
-  }
-
-  // Deduplicate events by event_id
-  const eventId = payload.event_id;
-  if (eventId && processedEvents.has(eventId)) {
-    return NextResponse.json({ ok: true });
-  }
-  if (eventId) {
-    processedEvents.add(eventId);
-    // Prevent memory leak: keep only last 100 events
-    if (processedEvents.size > 100) {
-      const first = processedEvents.values().next().value;
-      if (first) processedEvents.delete(first);
-    }
   }
 
   const event = payload.event;
   if (!event) return NextResponse.json({ ok: true });
 
-  // Handle @mention only (message.im handled separately)
   const isAppMention = event.type === "app_mention";
   const isDirectMessage = event.type === "message" && !event.bot_id && !event.subtype;
 
