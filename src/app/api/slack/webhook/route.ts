@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextRequest, NextResponse, after } from "next/server";
 import crypto from "crypto";
 import { createAdminClient } from "@/shared/lib/supabase/admin";
 import { askGemini } from "@/shared/lib/gemini";
@@ -225,9 +225,13 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   const isDirectMessage = event.type === "message" && !event.bot_id && !event.subtype;
 
   if ((isAppMention || isDirectMessage) && event.text) {
-    // Don't await - respond to Slack within 3s, process in background
-    handleQuestion(event).catch((err) => {
-      console.error("Slack webhook error:", err);
+    // Use after() to keep serverless function alive after response
+    after(async () => {
+      try {
+        await handleQuestion(event);
+      } catch (err) {
+        console.error("Slack webhook error:", err);
+      }
     });
   }
 
