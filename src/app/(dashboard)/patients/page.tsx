@@ -22,15 +22,15 @@ export default function PatientsPage() {
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold">Patients</h1>
+        <h1 className="text-2xl font-bold">환자 관리</h1>
         <Link href="/patients/new">
-          <Button><Plus className="mr-2 h-4 w-4" />New Patient</Button>
+          <Button><Plus className="mr-2 h-4 w-4" />새 환자</Button>
         </Link>
       </div>
       <div className="relative max-w-sm">
         <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
         <Input
-          placeholder="Search patients..."
+          placeholder="환자 검색..."
           className="pl-9"
           value={search}
           onChange={(e) => { setSearch(e.target.value); setPage(1); }}
@@ -39,12 +39,12 @@ export default function PatientsPage() {
       <Table>
         <TableHeader>
           <TableRow>
-            <TableHead>Chart #</TableHead>
-            <TableHead>Name</TableHead>
-            <TableHead>Birth Date</TableHead>
-            <TableHead>Gender</TableHead>
-            <TableHead>Phone</TableHead>
-            <TableHead>Actions</TableHead>
+            <TableHead>차트번호</TableHead>
+            <TableHead>이름</TableHead>
+            <TableHead>생년월일</TableHead>
+            <TableHead>성별</TableHead>
+            <TableHead>연락처</TableHead>
+            <TableHead>관리</TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
@@ -64,14 +64,14 @@ export default function PatientsPage() {
               <TableCell>
                 <div className="flex gap-2">
                   <Link href={`/patients/${patient.id}/edit`}>
-                    <Button variant="outline" size="sm">Edit</Button>
+                    <Button variant="outline" size="sm">수정</Button>
                   </Link>
                   <Button
                     variant="destructive"
                     size="sm"
-                    onClick={() => { if (confirm("Delete this patient?")) deletePatient.mutate(patient.id); }}
+                    onClick={() => { if (confirm("이 환자를 삭제하시겠습니까?")) deletePatient.mutate(patient.id); }}
                   >
-                    Delete
+                    삭제
                   </Button>
                 </div>
               </TableCell>
@@ -80,7 +80,7 @@ export default function PatientsPage() {
           {data?.data.length === 0 && (
             <TableRow>
               <TableCell colSpan={6} className="text-center text-muted-foreground py-8">
-                No patients found
+                등록된 환자가 없습니다
               </TableCell>
             </TableRow>
           )}

@@ -10,19 +10,18 @@ import {
   FileText,
   Settings,
   LayoutDashboard,
-  ClipboardList,
 } from "lucide-react";
 import { cn } from "@/shared/lib/utils";
 import { useUiStore } from "@/shared/store/ui-store";
 
 const navItems = [
-  { href: "/", label: "Dashboard", icon: LayoutDashboard },
-  { href: "/patients", label: "Patients", icon: Users },
-  { href: "/appointments", label: "Appointments", icon: Calendar },
-  { href: "/billing", label: "Billing", icon: Receipt },
-  { href: "/waiting", label: "Waiting", icon: Clock },
-  { href: "/audit-log", label: "Audit Log", icon: ClipboardList },
-  { href: "/settings", label: "Settings", icon: Settings },
+  { href: "/", label: "대시보드", icon: LayoutDashboard },
+  { href: "/patients", label: "환자 관리", icon: Users },
+  { href: "/appointments", label: "예약 관리", icon: Calendar },
+  { href: "/medical-records", label: "진료기록", icon: FileText },
+  { href: "/billing", label: "수납", icon: Receipt },
+  { href: "/waiting", label: "대기실", icon: Clock },
+  { href: "/settings", label: "설정", icon: Settings },
 ];
 
 export function Sidebar() {

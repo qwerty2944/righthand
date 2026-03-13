@@ -52,7 +52,7 @@ export default function DashboardPage() {
 
   return (
     <div className="space-y-6">
-      <h1 className="text-2xl font-bold">Dashboard</h1>
+      <h1 className="text-2xl font-bold">대시보드</h1>
       <StatsCards
         stats={stats ?? { totalPatients: 0, todayAppointments: 0, pendingBilling: 0, waitingCount: 0 }}
       />

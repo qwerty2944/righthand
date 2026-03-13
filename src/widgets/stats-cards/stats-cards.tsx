@@ -12,10 +12,10 @@ interface StatsData {
 
 export function StatsCards({ stats }: { stats: StatsData }) {
   const cards = [
-    { title: "Total Patients", value: stats.totalPatients, icon: Users, color: "text-blue-600" },
-    { title: "Today's Appointments", value: stats.todayAppointments, icon: Calendar, color: "text-green-600" },
-    { title: "Pending Billing", value: stats.pendingBilling, icon: Receipt, color: "text-yellow-600" },
-    { title: "Waiting", value: stats.waitingCount, icon: Clock, color: "text-red-600" },
+    { title: "전체 환자", value: stats.totalPatients, icon: Users, color: "text-blue-600" },
+    { title: "오늘 예약", value: stats.todayAppointments, icon: Calendar, color: "text-green-600" },
+    { title: "미수납", value: stats.pendingBilling, icon: Receipt, color: "text-yellow-600" },
+    { title: "대기중", value: stats.waitingCount, icon: Clock, color: "text-red-600" },
   ];
 
   return (
