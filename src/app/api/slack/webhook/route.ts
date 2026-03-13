@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import crypto from "crypto";
 import { createAdminClient } from "@/shared/lib/supabase/admin";
-import { generateEmbedding } from "@/shared/lib/embeddings";
+import { askGemini } from "@/shared/lib/gemini";
 
 function verifySlackSignature(request: NextRequest, body: string): boolean {
   const signingSecret = process.env.SLACK_SIGNING_SECRET;
@@ -22,220 +22,10 @@ function verifySlackSignature(request: NextRequest, body: string): boolean {
   return crypto.timingSafeEqual(Buffer.from(mySignature), Buffer.from(signature));
 }
 
-type SearchResult = {
-  id: string;
-  source_table: string;
-  content: string;
-  similarity: number;
-};
-
-type Patient = {
-  id: string;
-  name: string;
-  chart_number: string | null;
-  birth_date: string;
-  gender: string | null;
-  phone: string | null;
-  email: string | null;
-  notes: string | null;
-};
-
-type Appointment = {
-  id: string;
-  appointment_date: string;
-  start_time: string;
-  end_time: string;
-  status: string;
-  notes: string | null;
-};
-
-type MedicalRecord = {
-  id: string;
-  chief_complaint: string | null;
-  assessment: string | null;
-  plan: string | null;
-  created_at: string;
-  status: string;
-};
-
-function formatGender(gender: string | null): string {
-  if (!gender) return "-";
-  const map: Record<string, string> = { male: "남", female: "여", other: "기타" };
-  return map[gender] ?? gender;
-}
-
-function formatDate(dateStr: string): string {
-  if (!dateStr) return "-";
-  return dateStr.replace(/-/g, ".");
-}
-
-function formatStatus(status: string): string {
-  const map: Record<string, string> = {
-    scheduled: "예약됨",
-    confirmed: "확인됨",
-    in_progress: "진료중",
-    completed: "완료",
-    cancelled: "취소",
-    no_show: "미방문",
-    draft: "초안",
-    finalized: "확정",
-    amended: "수정됨",
-  };
-  return map[status] ?? status;
-}
-
-function buildPatientCard(
-  patient: Patient,
-  appointments: Appointment[],
-  records: MedicalRecord[],
-  similarity: number,
-): Record<string, unknown>[] {
-  const blocks: Record<string, unknown>[] = [
-    {
-      type: "header",
-      text: { type: "plain_text", text: `${patient.name} 환자 정보`, emoji: true },
-    },
-    {
-      type: "section",
-      fields: [
-        { type: "mrkdwn", text: `*차트번호:*\n${patient.chart_number ?? "-"}` },
-        { type: "mrkdwn", text: `*생년월일:*\n${formatDate(patient.birth_date)}` },
-        { type: "mrkdwn", text: `*성별:*\n${formatGender(patient.gender)}` },
-        { type: "mrkdwn", text: `*연락처:*\n${patient.phone ?? "-"}` },
-      ],
-    },
-  ];
-
-  if (patient.email) {
-    blocks.push({
-      type: "section",
-      text: { type: "mrkdwn", text: `*이메일:* ${patient.email}` },
-    });
-  }
-
-  if (patient.notes) {
-    blocks.push({
-      type: "section",
-      text: { type: "mrkdwn", text: `*메모:* ${patient.notes}` },
-    });
-  }
-
-  // Recent appointments
-  if (appointments.length > 0) {
-    blocks.push({ type: "divider" });
-    blocks.push({
-      type: "section",
-      text: { type: "mrkdwn", text: `*최근 예약 (${appointments.length}건)*` },
-    });
-    for (const apt of appointments) {
-      blocks.push({
-        type: "section",
-        text: {
-          type: "mrkdwn",
-          text: `> ${formatDate(apt.appointment_date)} ${apt.start_time}-${apt.end_time} | ${formatStatus(apt.status)}${apt.notes ? ` | ${apt.notes}` : ""}`,
-        },
-      });
-    }
-  }
-
-  // Recent medical records
-  if (records.length > 0) {
-    blocks.push({ type: "divider" });
-    blocks.push({
-      type: "section",
-      text: { type: "mrkdwn", text: `*최근 진료기록 (${records.length}건)*` },
-    });
-    for (const rec of records) {
-      const parts: string[] = [];
-      if (rec.chief_complaint) parts.push(`CC: ${rec.chief_complaint}`);
-      if (rec.assessment) parts.push(`A: ${rec.assessment}`);
-      if (rec.plan) parts.push(`P: ${rec.plan}`);
-      blocks.push({
-        type: "section",
-        text: {
-          type: "mrkdwn",
-          text: `> ${formatDate(rec.created_at.slice(0, 10))} [${formatStatus(rec.status)}] ${parts.join(" | ")}`,
-        },
-      });
-    }
-  }
-
-  blocks.push({ type: "divider" });
-  blocks.push({
-    type: "context",
-    elements: [
-      {
-        type: "mrkdwn",
-        text: `Matching confidence: ${Math.round(similarity * 100)}%`,
-      },
-    ],
-  });
-
-  return blocks;
-}
-
-function buildGenericResults(
-  query: string,
-  results: SearchResult[],
-): Record<string, unknown>[] {
-  return [
-    {
-      type: "section",
-      text: { type: "mrkdwn", text: `*"${query}" 검색 결과*` },
-    },
-    { type: "divider" },
-    ...results.map((r) => ({
-      type: "section",
-      text: {
-        type: "mrkdwn",
-        text: `*[${r.source_table}]* ${r.content}\n_유사도: ${Math.round(r.similarity * 100)}%_`,
-      },
-    })),
-  ];
-}
-
-async function fetchPatientDetails(
-  admin: ReturnType<typeof createAdminClient>,
-  patientId: string,
-): Promise<{
-  patient: Patient | null;
-  appointments: Appointment[];
-  records: MedicalRecord[];
-}> {
-  const [patientRes, appointmentsRes, recordsRes] = await Promise.all([
-    (admin as any)
-      .from("patients")
-      .select("id, name, chart_number, birth_date, gender, phone, email, notes")
-      .eq("id", patientId)
-      .is("deleted_at", null)
-      .single(),
-    (admin as any)
-      .from("appointments")
-      .select("id, appointment_date, start_time, end_time, status, notes")
-      .eq("patient_id", patientId)
-      .order("appointment_date", { ascending: false })
-      .limit(5),
-    (admin as any)
-      .from("medical_records")
-      .select("id, chief_complaint, assessment, plan, created_at, status")
-      .eq("patient_id", patientId)
-      .is("deleted_at", null)
-      .order("created_at", { ascending: false })
-      .limit(5),
-  ]);
-
-  return {
-    patient: patientRes.data ?? null,
-    appointments: appointmentsRes.data ?? [],
-    records: recordsRes.data ?? [],
-  };
-}
-
 async function postSlackMessage(
   botToken: string,
   channel: string,
   threadTs: string,
-  blocks: Record<string, unknown>[],
   text: string,
 ): Promise<void> {
   await fetch("https://slack.com/api/chat.postMessage", {
@@ -247,10 +37,99 @@ async function postSlackMessage(
     body: JSON.stringify({
       channel,
       thread_ts: threadTs,
-      blocks,
       text,
     }),
   });
+}
+
+async function fetchClinicData(
+  admin: ReturnType<typeof createAdminClient>,
+  clinicId: string,
+  query: string,
+): Promise<string> {
+  // Search patients by name (fuzzy text match)
+  const { data: patients } = await (admin as any)
+    .from("patients")
+    .select("id, name, chart_number, birth_date, gender, phone, email, address, notes")
+    .eq("clinic_id", clinicId)
+    .is("deleted_at", null);
+
+  if (!patients || patients.length === 0) {
+    return "등록된 환자가 없습니다.";
+  }
+
+  // Find matching patients by name
+  const queryLower = query.toLowerCase();
+  const matched = patients.filter((p: any) =>
+    queryLower.includes(p.name?.toLowerCase() ?? ""),
+  );
+
+  const targetPatients = matched.length > 0 ? matched : patients;
+
+  // Fetch related data for matched patients
+  const patientDetails: string[] = [];
+
+  for (const patient of targetPatients.slice(0, 5)) {
+    const [appointmentsRes, recordsRes, billingRes] = await Promise.all([
+      (admin as any)
+        .from("appointments")
+        .select("appointment_date, start_time, end_time, status, notes")
+        .eq("patient_id", patient.id)
+        .order("appointment_date", { ascending: false })
+        .limit(5),
+      (admin as any)
+        .from("medical_records")
+        .select("chief_complaint, subjective, objective, assessment, plan, created_at, status")
+        .eq("patient_id", patient.id)
+        .is("deleted_at", null)
+        .order("created_at", { ascending: false })
+        .limit(5),
+      (admin as any)
+        .from("billing_items")
+        .select("billing_code, description, amount, status, created_at")
+        .eq("patient_id", patient.id)
+        .order("created_at", { ascending: false })
+        .limit(5),
+    ]);
+
+    let detail = `[환자] 이름: ${patient.name}`;
+    if (patient.chart_number) detail += `, 차트번호: ${patient.chart_number}`;
+    if (patient.birth_date) detail += `, 생년월일: ${patient.birth_date}`;
+    if (patient.gender) detail += `, 성별: ${patient.gender === "male" ? "남" : patient.gender === "female" ? "여" : "기타"}`;
+    if (patient.phone) detail += `, 연락처: ${patient.phone}`;
+    if (patient.email) detail += `, 이메일: ${patient.email}`;
+    if (patient.address) detail += `, 주소: ${patient.address}`;
+    if (patient.notes) detail += `, 메모: ${patient.notes}`;
+
+    if (appointmentsRes.data?.length) {
+      detail += "\n[예약 내역]";
+      for (const a of appointmentsRes.data) {
+        detail += `\n- ${a.appointment_date} ${a.start_time}-${a.end_time} (${a.status})${a.notes ? ` ${a.notes}` : ""}`;
+      }
+    }
+
+    if (recordsRes.data?.length) {
+      detail += "\n[진료기록]";
+      for (const r of recordsRes.data) {
+        const parts = [];
+        if (r.chief_complaint) parts.push(`주소: ${r.chief_complaint}`);
+        if (r.assessment) parts.push(`평가: ${r.assessment}`);
+        if (r.plan) parts.push(`계획: ${r.plan}`);
+        detail += `\n- ${r.created_at?.slice(0, 10)} (${r.status}) ${parts.join(", ")}`;
+      }
+    }
+
+    if (billingRes.data?.length) {
+      detail += "\n[수납 내역]";
+      for (const b of billingRes.data) {
+        detail += `\n- ${b.billing_code} ${b.description} ${b.amount}원 (${b.status})`;
+      }
+    }
+
+    patientDetails.push(detail);
+  }
+
+  return patientDetails.join("\n\n");
 }
 
 export async function POST(request: NextRequest): Promise<NextResponse> {
@@ -272,7 +151,6 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     try {
       const admin = createAdminClient();
 
-      // Look up clinic from Slack user mapping
       const { data: mapping } = await (admin as any)
         .from("slack_user_mappings")
         .select("clinic_id")
@@ -281,7 +159,6 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
 
       if (!mapping) return NextResponse.json({ ok: true });
 
-      // Get bot token for responding
       const { data: workspace } = await (admin as any)
         .from("slack_workspaces")
         .select("bot_token")
@@ -292,85 +169,31 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       if (!workspace?.bot_token) return NextResponse.json({ ok: true });
 
       const query = event.text;
-      const embedding = await generateEmbedding(query);
-      const { data: results } = await (admin.rpc as any)("search_by_embedding", {
-        query_embedding: JSON.stringify(embedding),
-        match_threshold: 0.5,
-        match_count: 5,
-        p_clinic_id: mapping.clinic_id,
-      });
 
-      if (!results || results.length === 0) {
-        await postSlackMessage(
-          workspace.bot_token,
-          event.channel,
-          event.ts,
-          [
-            {
-              type: "section",
-              text: {
-                type: "mrkdwn",
-                text: `"${query}"에 대한 검색 결과가 없습니다.`,
-              },
-            },
-          ],
-          "검색 결과 없음",
-        );
-      } else {
-        // Check if the top result is a patient
-        const topResult = results[0] as SearchResult;
+      // Fetch clinic data for context
+      const clinicData = await fetchClinicData(admin, mapping.clinic_id, query);
 
-        if (topResult.source_table === "patients" && topResult.similarity >= 0.6) {
-          // Fetch full patient details with related data
-          const { patient, appointments, records } = await fetchPatientDetails(
-            admin,
-            topResult.id,
-          );
+      // Ask Gemini with patient data context
+      const prompt = `당신은 병원 관리 시스템의 AI 어시스턴트입니다. 슬랙에서 의료진이 질문하면 환자 데이터를 기반으로 정확하고 간결하게 답변합니다.
 
-          if (patient) {
-            const blocks = buildPatientCard(
-              patient,
-              appointments,
-              records,
-              topResult.similarity,
-            );
-            await postSlackMessage(
-              workspace.bot_token,
-              event.channel,
-              event.ts,
-              blocks,
-              `${patient.name} 환자 정보`,
-            );
+규칙:
+- 한국어로 답변
+- 간결하고 핵심만 전달 (슬랙 메시지에 적합하게)
+- 데이터에 없는 내용은 추측하지 말고 "해당 정보가 없습니다"라고 답변
+- 나이 질문 시 생년월일로 계산 (오늘: ${new Date().toISOString().slice(0, 10)})
+- 민감 정보는 주의해서 다루되, 의료진의 업무 질문이므로 필요한 정보는 제공
 
-            // If there are additional results from other tables, show them too
-            const otherResults = (results as SearchResult[]).filter(
-              (r) => r.id !== topResult.id,
-            );
-            if (otherResults.length > 0) {
-              const extraBlocks = buildGenericResults(query, otherResults);
-              await postSlackMessage(
-                workspace.bot_token,
-                event.channel,
-                event.ts,
-                extraBlocks,
-                "추가 검색 결과",
-              );
-            }
-          }
-        } else {
-          // Generic search results
-          const blocks = buildGenericResults(query, results as SearchResult[]);
-          await postSlackMessage(
-            workspace.bot_token,
-            event.channel,
-            event.ts,
-            blocks,
-            `"${query}" 검색 결과`,
-          );
-        }
-      }
+[병원 데이터]
+${clinicData}
 
-      // Log the event
+[질문]
+${query}`;
+
+      const answer = await askGemini(prompt);
+
+      await postSlackMessage(workspace.bot_token, event.channel, event.ts, answer);
+
+      // Log event
       await (admin as any).from("slack_event_log").insert({
         clinic_id: mapping.clinic_id,
         event_type: event.type,
