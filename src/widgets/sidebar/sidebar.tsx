@@ -10,28 +10,36 @@ import {
   FileText,
   Settings,
   LayoutDashboard,
+  UserPlus,
+  CalendarPlus,
 } from "lucide-react";
 import { cn } from "@/shared/lib/utils";
 import { useUiStore } from "@/shared/store/ui-store";
+import { useSidebarCounts } from "./use-sidebar-counts";
 
-const navItems = [
+type CountKey = "patients" | "todayAppointments" | "pendingBilling" | "waitingCount";
+
+const navItems: { href: string; label: string; icon: typeof LayoutDashboard; countKey?: CountKey }[] = [
   { href: "/", label: "대시보드", icon: LayoutDashboard },
-  { href: "/patients", label: "환자 관리", icon: Users },
-  { href: "/appointments", label: "예약 관리", icon: Calendar },
+  { href: "/patients", label: "환자 관리", icon: Users, countKey: "patients" },
+  { href: "/appointments", label: "예약 관리", icon: Calendar, countKey: "todayAppointments" },
   { href: "/medical-records", label: "진료기록", icon: FileText },
-  { href: "/billing", label: "수납", icon: Receipt },
-  { href: "/waiting", label: "대기실", icon: Clock },
+  { href: "/billing", label: "수납", icon: Receipt, countKey: "pendingBilling" },
+  { href: "/waiting", label: "대기실", icon: Clock, countKey: "waitingCount" },
   { href: "/settings", label: "설정", icon: Settings },
 ];
 
 export function Sidebar() {
   const pathname = usePathname();
   const sidebarOpen = useUiStore((s) => s.sidebarOpen);
+  const openQuickPatientForm = useUiStore((s) => s.openQuickPatientForm);
+  const openQuickAppointmentForm = useUiStore((s) => s.openQuickAppointmentForm);
+  const counts = useSidebarCounts();
 
   return (
     <aside
       className={cn(
-        "fixed left-0 top-0 z-40 h-screen border-r bg-card transition-all duration-300",
+        "fixed left-0 top-0 z-40 h-screen border-r bg-sidebar transition-all duration-300 flex flex-col",
         sidebarOpen ? "w-64" : "w-16",
       )}
     >
@@ -43,11 +51,12 @@ export function Sidebar() {
           )}
         </Link>
       </div>
-      <nav className="mt-4 flex flex-col gap-1 px-2">
+      <nav className="mt-4 flex flex-1 flex-col gap-1 px-2">
         {navItems.map((item) => {
           const isActive =
             pathname === item.href ||
             (item.href !== "/" && pathname.startsWith(item.href));
+          const count = item.countKey && counts ? counts[item.countKey] : 0;
           return (
             <Link
               key={item.href}
@@ -55,16 +64,67 @@ export function Sidebar() {
               className={cn(
                 "flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors",
                 isActive
-                  ? "bg-primary text-primary-foreground"
+                  ? "bg-sidebar-active text-sidebar-active-text"
                   : "text-muted-foreground hover:bg-accent hover:text-accent-foreground",
               )}
             >
               <item.icon className="h-5 w-5 shrink-0" />
-              {sidebarOpen && <span>{item.label}</span>}
+              {sidebarOpen && (
+                <>
+                  <span className="flex-1">{item.label}</span>
+                  {item.countKey && count > 0 && (
+                    <span className={cn(
+                      "rounded-full px-2 py-0.5 text-[11px] font-semibold",
+                      isActive
+                        ? "bg-primary/20 text-primary"
+                        : "bg-muted text-muted-foreground",
+                    )}>
+                      {count}
+                    </span>
+                  )}
+                </>
+              )}
             </Link>
           );
         })}
       </nav>
+      <div className="border-t p-2">
+        {sidebarOpen ? (
+          <div className="flex gap-2">
+            <button
+              onClick={openQuickPatientForm}
+              className="flex flex-1 items-center justify-center gap-1.5 rounded-lg bg-primary px-3 py-2 text-xs font-medium text-primary-foreground transition-colors hover:bg-primary/90"
+            >
+              <UserPlus className="h-3.5 w-3.5" />
+              새 환자
+            </button>
+            <button
+              onClick={openQuickAppointmentForm}
+              className="flex flex-1 items-center justify-center gap-1.5 rounded-lg border px-3 py-2 text-xs font-medium transition-colors hover:bg-accent"
+            >
+              <CalendarPlus className="h-3.5 w-3.5" />
+              새 예약
+            </button>
+          </div>
+        ) : (
+          <div className="flex flex-col gap-1">
+            <button
+              onClick={openQuickPatientForm}
+              className="flex items-center justify-center rounded-lg bg-primary p-2 text-primary-foreground transition-colors hover:bg-primary/90"
+              title="새 환자"
+            >
+              <UserPlus className="h-4 w-4" />
+            </button>
+            <button
+              onClick={openQuickAppointmentForm}
+              className="flex items-center justify-center rounded-lg border p-2 transition-colors hover:bg-accent"
+              title="새 예약"
+            >
+              <CalendarPlus className="h-4 w-4" />
+            </button>
+          </div>
+        )}
+      </div>
     </aside>
   );
 }

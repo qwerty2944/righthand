@@ -1,21 +1,23 @@
 "use client";
 
-import { StatsCards } from "@/widgets/stats-cards";
-import { TodayAppointments } from "@/widgets/today-appointments";
-import { WaitingQueue } from "@/widgets/waiting-queue";
-import { QuickActions } from "@/widgets/quick-actions";
 import { useQuery } from "@tanstack/react-query";
 import { createClient } from "@/shared/lib/supabase/client";
 import { useAuthStore } from "@/shared/store/auth-store";
-import { Loading } from "@/shared/ui";
 
-export default function DashboardPage() {
+interface SidebarCounts {
+  patients: number;
+  todayAppointments: number;
+  pendingBilling: number;
+  waitingCount: number;
+}
+
+export function useSidebarCounts(): SidebarCounts | undefined {
   const clinicId = useAuthStore((s) => s.clinicId);
-  const supabase = createClient();
 
-  const { data: stats, isLoading } = useQuery({
-    queryKey: ["dashboard-stats", clinicId],
+  const { data } = useQuery({
+    queryKey: ["sidebar-counts", clinicId],
     queryFn: async () => {
+      const supabase = createClient();
       const today = new Date().toISOString().split("T")[0];
 
       const [patients, appointments, billing, waitlist] = await Promise.all([
@@ -42,28 +44,15 @@ export default function DashboardPage() {
       ]);
 
       return {
-        totalPatients: patients.count ?? 0,
+        patients: patients.count ?? 0,
         todayAppointments: appointments.count ?? 0,
         pendingBilling: billing.count ?? 0,
         waitingCount: waitlist.count ?? 0,
       };
     },
     enabled: !!clinicId,
+    refetchInterval: 30000,
   });
 
-  if (isLoading) return <Loading className="py-20" />;
-
-  return (
-    <div className="space-y-6">
-      <h1 className="text-2xl font-bold">대시보드</h1>
-      <StatsCards
-        stats={stats ?? { totalPatients: 0, todayAppointments: 0, pendingBilling: 0, waitingCount: 0 }}
-      />
-      <div className="grid gap-6 lg:grid-cols-2">
-        <TodayAppointments />
-        <WaitingQueue />
-      </div>
-      <QuickActions />
-    </div>
-  );
+  return data;
 }

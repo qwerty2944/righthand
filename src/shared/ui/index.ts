@@ -10,3 +10,4 @@ export { Pagination } from "./pagination";
 export { Dialog, DialogHeader, DialogTitle, DialogFooter } from "./dialog";
 export { Select } from "./select";
 export { Textarea } from "./textarea";
+export { Tabs, TabList, Tab, TabPanel } from "./tabs";

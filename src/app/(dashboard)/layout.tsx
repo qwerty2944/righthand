@@ -2,6 +2,8 @@
 
 import { useEffect } from "react";
 import { Sidebar } from "@/widgets/sidebar";
+import { QuickPatientForm } from "@/widgets/quick-patient-form";
+import { QuickAppointmentForm } from "@/widgets/quick-appointment-form";
 import { useUiStore } from "@/shared/store/ui-store";
 import { useAuthStore } from "@/shared/store/auth-store";
 import { createClient } from "@/shared/lib/supabase/client";
@@ -47,7 +49,7 @@ export default function DashboardLayout({
   }, [openSearchModal]);
 
   return (
-    <div className="min-h-screen bg-muted/30">
+    <div className="min-h-screen bg-slate-50">
       <Sidebar />
       <div
         className={cn(
@@ -57,6 +59,8 @@ export default function DashboardLayout({
       >
         <main className="p-6">{children}</main>
       </div>
+      <QuickPatientForm />
+      <QuickAppointmentForm />
     </div>
   );
 }
