@@ -10,7 +10,7 @@ export function useGetMedicalRecord(id: string | undefined) {
       const supabase = createClient();
       const { data, error } = await supabase
         .from("medical_records")
-        .select("*, files:medical_files(*)")
+        .select("*")
         .eq("id", id!)
         .single();
       if (error) throw error;

@@ -2,8 +2,6 @@
 
 import { useEffect } from "react";
 import { Sidebar } from "@/widgets/sidebar";
-import { Header } from "@/widgets/header";
-import { TabBar } from "@/widgets/workspace";
 import { useUiStore } from "@/shared/store/ui-store";
 import { useAuthStore } from "@/shared/store/auth-store";
 import { createClient } from "@/shared/lib/supabase/client";
@@ -57,8 +55,6 @@ export default function DashboardLayout({
           sidebarOpen ? "ml-64" : "ml-16",
         )}
       >
-        <Header />
-        <TabBar />
         <main className="p-6">{children}</main>
       </div>
     </div>

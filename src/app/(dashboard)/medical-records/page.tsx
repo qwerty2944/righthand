@@ -52,6 +52,7 @@ export default function MedicalRecordsPage() {
             <TableHead>주증상 (C/C)</TableHead>
             <TableHead>진단 (A)</TableHead>
             <TableHead>상태</TableHead>
+            <TableHead>관리</TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
@@ -69,11 +70,16 @@ export default function MedicalRecordsPage() {
                   {statusLabel[record.status] ?? record.status}
                 </Badge>
               </TableCell>
+              <TableCell>
+                <Link href={`/medical-records/${record.id}`}>
+                  <Button variant="outline" size="sm">수정</Button>
+                </Link>
+              </TableCell>
             </TableRow>
           ))}
           {filtered.length === 0 && (
             <TableRow>
-              <TableCell colSpan={4} className="text-center text-muted-foreground py-8">
+              <TableCell colSpan={5} className="text-center text-muted-foreground py-8">
                 진료기록이 없습니다
               </TableCell>
             </TableRow>
