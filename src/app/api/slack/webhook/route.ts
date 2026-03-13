@@ -42,12 +42,21 @@ async function postSlackMessage(
   });
 }
 
+async function getClinicId(admin: ReturnType<typeof createAdminClient>): Promise<string | null> {
+  // Try to get the first clinic (single-tenant for now)
+  const { data } = await (admin as any)
+    .from("clinics")
+    .select("id")
+    .limit(1)
+    .single();
+  return data?.id ?? null;
+}
+
 async function fetchClinicData(
   admin: ReturnType<typeof createAdminClient>,
   clinicId: string,
   query: string,
 ): Promise<string> {
-  // Search patients by name (fuzzy text match)
   const { data: patients } = await (admin as any)
     .from("patients")
     .select("id, name, chart_number, birth_date, gender, phone, email, address, notes")
@@ -58,15 +67,16 @@ async function fetchClinicData(
     return "등록된 환자가 없습니다.";
   }
 
+  // Strip @mention tags from query for matching
+  const cleanQuery = query.replace(/<@[A-Z0-9]+>/g, "").trim().toLowerCase();
+
   // Find matching patients by name
-  const queryLower = query.toLowerCase();
   const matched = patients.filter((p: any) =>
-    queryLower.includes(p.name?.toLowerCase() ?? ""),
+    cleanQuery.includes(p.name?.toLowerCase() ?? ""),
   );
 
   const targetPatients = matched.length > 0 ? matched : patients;
 
-  // Fetch related data for matched patients
   const patientDetails: string[] = [];
 
   for (const patient of targetPatients.slice(0, 5)) {
@@ -132,6 +142,49 @@ async function fetchClinicData(
   return patientDetails.join("\n\n");
 }
 
+async function handleQuestion(
+  event: any,
+): Promise<void> {
+  const botToken = process.env.SLACK_BOT_TOKEN;
+  if (!botToken) return;
+
+  const admin = createAdminClient();
+
+  // Get clinic ID (single-tenant: use first clinic)
+  const clinicId = await getClinicId(admin);
+  if (!clinicId) return;
+
+  const query = event.text;
+  const clinicData = await fetchClinicData(admin, clinicId, query);
+
+  const prompt = `당신은 병원 관리 시스템의 AI 어시스턴트입니다. 슬랙에서 의료진이 질문하면 환자 데이터를 기반으로 정확하고 간결하게 답변합니다.
+
+규칙:
+- 한국어로 답변
+- 간결하고 핵심만 전달 (슬랙 메시지에 적합하게)
+- 데이터에 없는 내용은 추측하지 말고 "해당 정보가 없습니다"라고 답변
+- 나이 질문 시 생년월일로 계산 (오늘: ${new Date().toISOString().slice(0, 10)})
+- 민감 정보는 주의해서 다루되, 의료진의 업무 질문이므로 필요한 정보는 제공
+- @멘션 태그(<@...>)는 무시하고 질문 내용에만 집중
+
+[병원 데이터]
+${clinicData}
+
+[질문]
+${query}`;
+
+  const answer = await askGemini(prompt);
+
+  await postSlackMessage(botToken, event.channel, event.ts, answer);
+
+  // Log event (best effort)
+  await (admin as any).from("slack_event_log").insert({
+    clinic_id: clinicId,
+    event_type: event.type,
+    event_data: event,
+  }).then(() => {}).catch(() => {});
+}
+
 export async function POST(request: NextRequest): Promise<NextResponse> {
   const body = await request.text();
   const payload = JSON.parse(body);
@@ -147,61 +200,15 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   const event = payload.event;
   if (!event) return NextResponse.json({ ok: true });
 
-  if (event.type === "message" && !event.bot_id && event.text) {
-    try {
-      const admin = createAdminClient();
+  // Handle both @mention and direct messages
+  const isAppMention = event.type === "app_mention";
+  const isDirectMessage = event.type === "message" && !event.bot_id && !event.subtype;
 
-      const { data: mapping } = await (admin as any)
-        .from("slack_user_mappings")
-        .select("clinic_id")
-        .eq("slack_user_id", event.user)
-        .single();
-
-      if (!mapping) return NextResponse.json({ ok: true });
-
-      const { data: workspace } = await (admin as any)
-        .from("slack_workspaces")
-        .select("bot_token")
-        .eq("clinic_id", mapping.clinic_id)
-        .eq("is_active", true)
-        .single();
-
-      if (!workspace?.bot_token) return NextResponse.json({ ok: true });
-
-      const query = event.text;
-
-      // Fetch clinic data for context
-      const clinicData = await fetchClinicData(admin, mapping.clinic_id, query);
-
-      // Ask Gemini with patient data context
-      const prompt = `당신은 병원 관리 시스템의 AI 어시스턴트입니다. 슬랙에서 의료진이 질문하면 환자 데이터를 기반으로 정확하고 간결하게 답변합니다.
-
-규칙:
-- 한국어로 답변
-- 간결하고 핵심만 전달 (슬랙 메시지에 적합하게)
-- 데이터에 없는 내용은 추측하지 말고 "해당 정보가 없습니다"라고 답변
-- 나이 질문 시 생년월일로 계산 (오늘: ${new Date().toISOString().slice(0, 10)})
-- 민감 정보는 주의해서 다루되, 의료진의 업무 질문이므로 필요한 정보는 제공
-
-[병원 데이터]
-${clinicData}
-
-[질문]
-${query}`;
-
-      const answer = await askGemini(prompt);
-
-      await postSlackMessage(workspace.bot_token, event.channel, event.ts, answer);
-
-      // Log event
-      await (admin as any).from("slack_event_log").insert({
-        clinic_id: mapping.clinic_id,
-        event_type: event.type,
-        event_data: event,
-      });
-    } catch (err) {
+  if ((isAppMention || isDirectMessage) && event.text) {
+    // Don't await - respond to Slack within 3s, process in background
+    handleQuestion(event).catch((err) => {
       console.error("Slack webhook error:", err);
-    }
+    });
   }
 
   return NextResponse.json({ ok: true });
