@@ -19,7 +19,10 @@ function verifySlackSignature(request: NextRequest, body: string): boolean {
     "v0=" +
     crypto.createHmac("sha256", signingSecret).update(sigBasestring).digest("hex");
 
-  return crypto.timingSafeEqual(Buffer.from(mySignature), Buffer.from(signature));
+  const sigBuffer = Buffer.from(mySignature);
+  const reqBuffer = Buffer.from(signature);
+  if (sigBuffer.length !== reqBuffer.length) return false;
+  return crypto.timingSafeEqual(sigBuffer, reqBuffer);
 }
 
 async function postSlackMessage(
@@ -146,18 +149,25 @@ async function handleQuestion(
   event: any,
 ): Promise<void> {
   const botToken = process.env.SLACK_BOT_TOKEN;
-  if (!botToken) return;
+  if (!botToken) {
+    console.error("SLACK_BOT_TOKEN not set");
+    return;
+  }
 
-  const admin = createAdminClient();
+  try {
+    const admin = createAdminClient();
 
-  // Get clinic ID (single-tenant: use first clinic)
-  const clinicId = await getClinicId(admin);
-  if (!clinicId) return;
+    // Get clinic ID (single-tenant: use first clinic)
+    const clinicId = await getClinicId(admin);
+    if (!clinicId) {
+      await postSlackMessage(botToken, event.channel, event.ts, "등록된 클리닉이 없습니다.");
+      return;
+    }
 
-  const query = event.text;
-  const clinicData = await fetchClinicData(admin, clinicId, query);
+    const query = event.text;
+    const clinicData = await fetchClinicData(admin, clinicId, query);
 
-  const prompt = `당신은 병원 관리 시스템의 AI 어시스턴트입니다. 슬랙에서 의료진이 질문하면 환자 데이터를 기반으로 정확하고 간결하게 답변합니다.
+    const prompt = `당신은 병원 관리 시스템의 AI 어시스턴트입니다. 슬랙에서 의료진이 질문하면 환자 데이터를 기반으로 정확하고 간결하게 답변합니다.
 
 규칙:
 - 한국어로 답변
@@ -173,16 +183,26 @@ ${clinicData}
 [질문]
 ${query}`;
 
-  const answer = await askGemini(prompt);
+    const answer = await askGemini(prompt);
 
-  await postSlackMessage(botToken, event.channel, event.ts, answer);
+    await postSlackMessage(botToken, event.channel, event.ts, answer);
 
-  // Log event (best effort)
-  await (admin as any).from("slack_event_log").insert({
-    clinic_id: clinicId,
-    event_type: event.type,
-    event_data: event,
-  }).then(() => {}).catch(() => {});
+    // Log event (best effort)
+    await (admin as any).from("slack_event_log").insert({
+      clinic_id: clinicId,
+      event_type: event.type,
+      event_data: event,
+    }).then(() => {}).catch(() => {});
+  } catch (err: unknown) {
+    console.error("handleQuestion error:", err);
+    const message = err instanceof Error ? err.message : String(err);
+    await postSlackMessage(
+      botToken,
+      event.channel,
+      event.ts,
+      `오류가 발생했습니다: ${message}`,
+    ).catch(() => {});
+  }
 }
 
 export async function POST(request: NextRequest): Promise<NextResponse> {
