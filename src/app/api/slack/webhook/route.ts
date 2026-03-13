@@ -217,6 +217,11 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     return NextResponse.json({ error: "Invalid signature" }, { status: 401 });
   }
 
+  // Ignore Slack retries to prevent duplicate responses
+  if (request.headers.get("x-slack-retry-num")) {
+    return NextResponse.json({ ok: true });
+  }
+
   const event = payload.event;
   if (!event) return NextResponse.json({ ok: true });
 
