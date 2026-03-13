@@ -1,26 +1,32 @@
-import type { FeatureExtractionPipeline } from "@huggingface/transformers";
+const GEMINI_EMBED_URL =
+  "https://generativelanguage.googleapis.com/v1beta/models/text-embedding-004:embedContent";
 
-let _extractor: Promise<FeatureExtractionPipeline> | null = null;
-
-async function createPipeline(): Promise<FeatureExtractionPipeline> {
-  const { pipeline } = await import("@huggingface/transformers");
-  // @ts-expect-error -- pipeline() overload union too complex for TS
-  return pipeline("feature-extraction", "Xenova/multilingual-e5-small", {
-    dtype: "fp32",
-  });
-}
-
-function getExtractor(): Promise<FeatureExtractionPipeline> {
-  if (!_extractor) {
-    _extractor = createPipeline();
-  }
-  return _extractor;
-}
+type GeminiEmbedResponse = {
+  embedding?: { values?: number[] };
+};
 
 export async function generateEmbedding(text: string): Promise<number[]> {
-  const extractor = await getExtractor();
-  const output = await extractor(text, { pooling: "mean", normalize: true });
-  return output.tolist()[0] as number[];
+  const apiKey = process.env.GEMINI_API_KEY;
+  if (!apiKey) throw new Error("GEMINI_API_KEY not configured");
+
+  const res = await fetch(`${GEMINI_EMBED_URL}?key=${apiKey}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      model: "models/text-embedding-004",
+      content: { parts: [{ text }] },
+    }),
+  });
+
+  if (!res.ok) {
+    const err = await res.text();
+    throw new Error(`Gemini Embedding API error: ${res.status} ${err}`);
+  }
+
+  const data = (await res.json()) as GeminiEmbedResponse;
+  const values = data.embedding?.values;
+  if (!values) throw new Error("No embedding returned");
+  return values;
 }
 
 export function buildEmbeddingText(fields: Record<string, string | null | undefined>): string {
