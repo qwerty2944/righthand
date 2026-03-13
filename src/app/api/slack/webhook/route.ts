@@ -168,12 +168,14 @@ async function handleQuestion(
 
     // Log immediately to prevent duplicates
     const clinicId = await getClinicId(admin);
-    await (admin as any).from("slack_event_log").insert({
-      clinic_id: clinicId,
-      event_type: event.type,
-      event_ts: event.ts,
-      event_data: event,
-    }).catch(() => {});
+    try {
+      await (admin as any).from("slack_event_log").insert({
+        clinic_id: clinicId,
+        event_type: event.type,
+        event_ts: event.ts,
+        event_data: event,
+      });
+    } catch { /* ignore */ }
 
     if (!clinicId) {
       await postSlackMessage(botToken, event.channel, event.ts, "등록된 클리닉이 없습니다.");
