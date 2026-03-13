@@ -205,6 +205,8 @@ ${query}`;
   }
 }
 
+const processedEvents = new Set<string>();
+
 export async function POST(request: NextRequest): Promise<NextResponse> {
   const body = await request.text();
   const payload = JSON.parse(body);
@@ -222,15 +224,28 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     return NextResponse.json({ ok: true });
   }
 
+  // Deduplicate events by event_id
+  const eventId = payload.event_id;
+  if (eventId && processedEvents.has(eventId)) {
+    return NextResponse.json({ ok: true });
+  }
+  if (eventId) {
+    processedEvents.add(eventId);
+    // Prevent memory leak: keep only last 100 events
+    if (processedEvents.size > 100) {
+      const first = processedEvents.values().next().value;
+      if (first) processedEvents.delete(first);
+    }
+  }
+
   const event = payload.event;
   if (!event) return NextResponse.json({ ok: true });
 
-  // Handle both @mention and direct messages
+  // Handle @mention only (message.im handled separately)
   const isAppMention = event.type === "app_mention";
   const isDirectMessage = event.type === "message" && !event.bot_id && !event.subtype;
 
   if ((isAppMention || isDirectMessage) && event.text) {
-    // Use after() to keep serverless function alive after response
     after(async () => {
       try {
         await handleQuestion(event);
