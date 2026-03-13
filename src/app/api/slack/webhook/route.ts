@@ -145,13 +145,16 @@ async function fetchClinicData(
   return patientDetails.join("\n\n");
 }
 
-async function isDuplicateEvent(admin: ReturnType<typeof createAdminClient>, eventTs: string): Promise<boolean> {
-  const { data } = await (admin as any)
-    .from("slack_event_log")
-    .select("id")
-    .eq("event_ts", eventTs)
-    .limit(1);
-  return (data?.length ?? 0) > 0;
+async function claimEvent(admin: ReturnType<typeof createAdminClient>, event: any, clinicId: string | null): Promise<boolean> {
+  // Atomic insert with unique constraint on event_ts
+  // If another instance already inserted, this returns an error → duplicate
+  const { error } = await (admin as any).from("slack_event_log").insert({
+    clinic_id: clinicId,
+    event_type: event.type,
+    event_ts: event.ts,
+    event_data: event,
+  });
+  return !error; // true = first to claim, false = duplicate
 }
 
 async function handleQuestion(
@@ -162,20 +165,11 @@ async function handleQuestion(
 
   try {
     const admin = createAdminClient();
-
-    // DB-based deduplication (Vercel serverless is stateless)
-    if (await isDuplicateEvent(admin, event.ts)) return;
-
-    // Log immediately to prevent duplicates
     const clinicId = await getClinicId(admin);
-    try {
-      await (admin as any).from("slack_event_log").insert({
-        clinic_id: clinicId,
-        event_type: event.type,
-        event_ts: event.ts,
-        event_data: event,
-      });
-    } catch { /* ignore */ }
+
+    // Atomic dedup: insert first, skip if duplicate (unique constraint on event_ts)
+    const claimed = await claimEvent(admin, event, clinicId);
+    if (!claimed) return;
 
     if (!clinicId) {
       await postSlackMessage(botToken, event.channel, event.ts, "등록된 클리닉이 없습니다.");
