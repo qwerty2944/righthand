@@ -14,9 +14,13 @@ export type MedicalFile = Tables<"medical_files">;
 export type HiraCode = Tables<"hira_codes">;
 export type SlackWorkspace = Tables<"slack_workspaces">;
 export type BriefingSetting = Tables<"briefing_settings">;
+export type ClinicMember = Tables<"clinic_members">;
+export type ClinicInvitation = Tables<"clinic_invitations">;
 
 // Enums
 export type UserRole = "owner" | "staff";
+export type SignupRole = "general" | "director" | "staff";
+export type InvitationStatus = "pending" | "accepted" | "cancelled" | "expired";
 export type Gender = "male" | "female" | "other";
 export type AppointmentStatus = "scheduled" | "confirmed" | "in_progress" | "completed" | "cancelled" | "no_show";
 export type WaitlistStatus = "waiting" | "notified" | "booked" | "expired";

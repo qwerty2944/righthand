@@ -1,13 +1,15 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { Sidebar } from "@/widgets/sidebar";
 import { QuickPatientForm } from "@/widgets/quick-patient-form";
 import { QuickAppointmentForm } from "@/widgets/quick-appointment-form";
+import { JoinClinic } from "@/widgets/join-clinic";
 import { useUiStore } from "@/shared/store/ui-store";
 import { useAuthStore } from "@/shared/store/auth-store";
 import { createClient } from "@/shared/lib/supabase/client";
 import { cn } from "@/shared/lib/utils";
+import { Loading } from "@/shared/ui";
 
 export default function DashboardLayout({
   children,
@@ -20,8 +22,10 @@ export default function DashboardLayout({
   const setClinicId = useAuthStore((s) => s.setClinicId);
   const clinicId = useAuthStore((s) => s.clinicId);
 
+  const [profileLoaded, setProfileLoaded] = useState(false);
+
   useEffect(() => {
-    if (clinicId) return;
+    if (profileLoaded) return;
     const loadProfile = async () => {
       const supabase = createClient();
       const { data: { user } } = await supabase.auth.getUser();
@@ -32,10 +36,12 @@ export default function DashboardLayout({
         .select("clinic_id")
         .eq("id", user.id)
         .single();
+      // Set clinicId even if null
       if (profile) setClinicId(profile.clinic_id);
+      setProfileLoaded(true);
     };
     loadProfile();
-  }, [clinicId, setUser, setClinicId]);
+  }, [profileLoaded, setUser, setClinicId]);
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
@@ -48,6 +54,25 @@ export default function DashboardLayout({
     return () => document.removeEventListener("keydown", handler);
   }, [openSearchModal]);
 
+  // Loading state: show centered spinner
+  if (!profileLoaded) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-slate-50">
+        <Loading />
+      </div>
+    );
+  }
+
+  // No clinic: show JoinClinic widget (no sidebar)
+  if (clinicId === null) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-slate-50">
+        <JoinClinic />
+      </div>
+    );
+  }
+
+  // Normal dashboard layout with sidebar
   return (
     <div className="min-h-screen bg-slate-50">
       <Sidebar />

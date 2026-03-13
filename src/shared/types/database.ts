@@ -46,7 +46,7 @@ export type Database = {
       profiles: {
         Row: {
           id: string;
-          clinic_id: string;
+          clinic_id: string | null;
           email: string;
           name: string;
           role: "owner" | "staff";
@@ -57,7 +57,7 @@ export type Database = {
         };
         Insert: {
           id: string;
-          clinic_id: string;
+          clinic_id?: string | null;
           email: string;
           name: string;
           role?: "owner" | "staff";
@@ -67,12 +67,72 @@ export type Database = {
           updated_at?: string;
         };
         Update: {
-          clinic_id?: string;
+          clinic_id?: string | null;
           email?: string;
           name?: string;
           role?: "owner" | "staff";
           is_active?: boolean;
           last_login_at?: string | null;
+          updated_at?: string;
+        };
+      };
+      clinic_members: {
+        Row: {
+          id: string;
+          user_id: string;
+          clinic_id: string;
+          role: "owner" | "staff";
+          is_active: boolean;
+          joined_at: string;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          user_id: string;
+          clinic_id: string;
+          role?: "owner" | "staff";
+          is_active?: boolean;
+          joined_at?: string;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: {
+          role?: "owner" | "staff";
+          is_active?: boolean;
+          updated_at?: string;
+        };
+      };
+      clinic_invitations: {
+        Row: {
+          id: string;
+          clinic_id: string;
+          invited_by: string;
+          email: string | null;
+          code: string;
+          role: "owner" | "staff";
+          status: "pending" | "accepted" | "cancelled" | "expired";
+          expires_at: string;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          clinic_id: string;
+          invited_by: string;
+          email?: string | null;
+          code: string;
+          role?: "owner" | "staff";
+          status?: "pending" | "accepted" | "cancelled" | "expired";
+          expires_at?: string;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: {
+          email?: string | null;
+          role?: "owner" | "staff";
+          status?: "pending" | "accepted" | "cancelled" | "expired";
+          expires_at?: string;
           updated_at?: string;
         };
       };

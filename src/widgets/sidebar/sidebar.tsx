@@ -12,9 +12,11 @@ import {
   LayoutDashboard,
   UserPlus,
   CalendarPlus,
+  LogOut,
 } from "lucide-react";
 import { cn } from "@/shared/lib/utils";
 import { useUiStore } from "@/shared/store/ui-store";
+import { useAuthStore } from "@/shared/store/auth-store";
 import { useSidebarCounts } from "./use-sidebar-counts";
 
 type CountKey = "patients" | "todayAppointments" | "pendingBilling" | "waitingCount";
@@ -34,6 +36,7 @@ export function Sidebar() {
   const sidebarOpen = useUiStore((s) => s.sidebarOpen);
   const openQuickPatientForm = useUiStore((s) => s.openQuickPatientForm);
   const openQuickAppointmentForm = useUiStore((s) => s.openQuickAppointmentForm);
+  const logout = useAuthStore((s) => s.logout);
   const counts = useSidebarCounts();
 
   return (
@@ -88,6 +91,25 @@ export function Sidebar() {
           );
         })}
       </nav>
+      <div className="border-t p-2">
+        {sidebarOpen ? (
+          <button
+            onClick={logout}
+            className="flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium text-muted-foreground transition-colors hover:bg-red-50 hover:text-red-600"
+          >
+            <LogOut className="h-5 w-5 shrink-0" />
+            <span>로그아웃</span>
+          </button>
+        ) : (
+          <button
+            onClick={logout}
+            className="flex w-full items-center justify-center rounded-lg p-2 text-muted-foreground transition-colors hover:bg-red-50 hover:text-red-600"
+            title="로그아웃"
+          >
+            <LogOut className="h-4 w-4" />
+          </button>
+        )}
+      </div>
       <div className="border-t p-2">
         {sidebarOpen ? (
           <div className="flex gap-2">

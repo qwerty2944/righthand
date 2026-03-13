@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { Users } from "lucide-react";
 import { useGetClinic } from "@/entities/clinic";
 import { Card, CardHeader, CardTitle, CardContent, Button, Loading } from "@/shared/ui";
 
@@ -26,6 +27,22 @@ export default function SettingsPage() {
           <CardHeader><CardTitle className="text-lg">Integrations</CardTitle></CardHeader>
           <CardContent>
             <Link href="/settings/slack"><Button variant="outline" className="w-full">Slack Settings</Button></Link>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-lg flex items-center gap-2">
+              <Users className="w-5 h-5" />
+              멤버 관리
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-2">
+            <p className="text-sm text-muted-foreground">
+              병원 직원을 초대하고 관리합니다.
+            </p>
+            <Link href="/settings/members">
+              <Button variant="outline" className="w-full">멤버 관리</Button>
+            </Link>
           </CardContent>
         </Card>
       </div>
