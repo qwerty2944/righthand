@@ -49,6 +49,40 @@ export const CLINIC_TOOLS = [
     },
   },
   {
+    name: "create_patient",
+    description:
+      "Register a new patient. Use when the user wants to add/register a new patient. birth_date and gender are REQUIRED - if not provided, ask the user in text.",
+    parameters: {
+      type: "object",
+      properties: {
+        patient_name: { type: "string", description: "The patient's name" },
+        birth_date: { type: "string", description: "Birth date in YYYY-MM-DD format" },
+        gender: { type: "string", enum: ["male", "female", "other"], description: "Gender" },
+        phone: { type: "string", description: "Phone number (optional)" },
+        email: { type: "string", description: "Email (optional)" },
+        address: { type: "string", description: "Address (optional)" },
+        notes: { type: "string", description: "Notes (optional)" },
+      },
+      required: ["patient_name", "birth_date", "gender"],
+    },
+  },
+  {
+    name: "create_appointment",
+    description:
+      "Create a new appointment for a patient. Use when the user wants to schedule/book/add an appointment.",
+    parameters: {
+      type: "object",
+      properties: {
+        patient_name: { type: "string", description: "The patient's name" },
+        appointment_date: { type: "string", description: "Appointment date in YYYY-MM-DD format" },
+        start_time: { type: "string", description: "Start time in HH:MM format (24h)" },
+        end_time: { type: "string", description: "End time in HH:MM format (24h). If not specified, default to 30 minutes after start_time" },
+        notes: { type: "string", description: "Appointment notes (optional)" },
+      },
+      required: ["patient_name", "appointment_date", "start_time"],
+    },
+  },
+  {
     name: "update_medical_record",
     description:
       "Update the most recent medical record for a patient. Use when the user wants to modify existing chart data.",
@@ -102,7 +136,35 @@ type UpdateMedicalRecordAction = {
   previous: Record<string, string | null>;
 };
 
-export type SlackAction = UpdatePatientAction | CreateMedicalRecordAction | UpdateMedicalRecordAction;
+type CreatePatientAction = {
+  action: "create_patient";
+  clinic_id: string;
+  patient_name: string;
+  birth_date: string;
+  gender: string;
+  phone?: string;
+  email?: string;
+  address?: string;
+  notes?: string;
+};
+
+type CreateAppointmentAction = {
+  action: "create_appointment";
+  clinic_id: string;
+  patient_id: string;
+  patient_name: string;
+  appointment_date: string;
+  start_time: string;
+  end_time: string;
+  notes?: string;
+};
+
+export type SlackAction =
+  | UpdatePatientAction
+  | CreateMedicalRecordAction
+  | UpdateMedicalRecordAction
+  | CreatePatientAction
+  | CreateAppointmentAction;
 
 // --- C. Entity Resolution ---
 
@@ -174,6 +236,9 @@ const FIELD_LABELS: Record<string, string> = {
   objective: "객관적 소견",
   assessment: "평가",
   plan: "치료계획",
+  appointment_date: "예약일",
+  start_time: "시작시간",
+  end_time: "종료시간",
 };
 
 function formatGender(val: string | null | undefined): string {
@@ -229,6 +294,27 @@ export function buildConfirmationBlocks(action: SlackAction): any[] {
         const newVal = formatFieldValue(key, action.updates[key]);
         return `*${label}:* ${oldVal} -> ${newVal}`;
       });
+      break;
+    }
+    case "create_patient": {
+      headerText = "환자 등록 확인";
+      previewLines = [
+        `*생년월일:* ${action.birth_date}`,
+        `*성별:* ${formatGender(action.gender)}`,
+      ];
+      if (action.phone) previewLines.push(`*연락처:* ${action.phone}`);
+      if (action.email) previewLines.push(`*이메일:* ${action.email}`);
+      if (action.address) previewLines.push(`*주소:* ${action.address}`);
+      if (action.notes) previewLines.push(`*메모:* ${action.notes}`);
+      break;
+    }
+    case "create_appointment": {
+      headerText = "예약 등록 확인";
+      previewLines = [
+        `*예약일:* ${action.appointment_date}`,
+        `*시간:* ${action.start_time} - ${action.end_time}`,
+      ];
+      if (action.notes) previewLines.push(`*메모:* ${action.notes}`);
       break;
     }
   }
@@ -304,6 +390,36 @@ export async function executeAction(action: SlackAction): Promise<string> {
         .join(", ");
       return `${action.patient_name} 환자의 진료기록(${fields})이 수정되었습니다.`;
     }
+
+    case "create_patient": {
+      const { error } = await (admin as any).from("patients").insert({
+        clinic_id: action.clinic_id,
+        name: action.patient_name,
+        birth_date: action.birth_date,
+        gender: action.gender,
+        ...(action.phone && { phone: action.phone }),
+        ...(action.email && { email: action.email }),
+        ...(action.address && { address: action.address }),
+        ...(action.notes && { notes: action.notes }),
+      });
+      if (error) throw new Error(`환자 등록 실패: ${error.message}`);
+      return `${action.patient_name} 환자가 등록되었습니다.`;
+    }
+
+    case "create_appointment": {
+      const { error } = await (admin as any).from("appointments").insert({
+        clinic_id: action.clinic_id,
+        patient_id: action.patient_id,
+        appointment_date: action.appointment_date,
+        start_time: action.start_time,
+        end_time: action.end_time,
+        status: "scheduled",
+        created_by: "slack-bot",
+        ...(action.notes && { notes: action.notes }),
+      });
+      if (error) throw new Error(`예약 등록 실패: ${error.message}`);
+      return `${action.patient_name} 환자의 예약이 등록되었습니다. (${action.appointment_date} ${action.start_time}-${action.end_time})`;
+    }
   }
 }
 
@@ -322,10 +438,38 @@ export async function processFunctionCall(
   const patientName = args.patient_name as string;
   if (!patientName) return { type: "text", text: "환자 이름을 확인할 수 없습니다." };
 
+  // create_patient doesn't need existing patient lookup
+  if (name === "create_patient") {
+    const birthDate = args.birth_date as string;
+    const gender = args.gender as string;
+    if (!birthDate || !gender) {
+      return {
+        type: "text",
+        text: `환자 등록에는 생년월일과 성별이 필요합니다. 예: "${patientName} 환자 추가해줘 1988-02-02 남자"`,
+      };
+    }
+    const phone = args.phone as string | undefined;
+    const email = args.email as string | undefined;
+    const address = args.address as string | undefined;
+    const notes = args.notes as string | undefined;
+    const action: SlackAction = {
+      action: "create_patient",
+      clinic_id: clinicId,
+      patient_name: patientName,
+      birth_date: birthDate,
+      gender,
+      ...(phone ? { phone } : {}),
+      ...(email ? { email } : {}),
+      ...(address ? { address } : {}),
+      ...(notes ? { notes } : {}),
+    };
+    return { type: "blocks", blocks: buildConfirmationBlocks(action) };
+  }
+
   const result = await resolvePatient(admin, clinicId, patientName);
 
   if (result.status === "not_found") {
-    return { type: "text", text: `"${patientName}" 환자를 찾을 수 없습니다.` };
+    return { type: "text", text: `"${patientName}" 환자를 찾을 수 없습니다. 먼저 환자를 등록해주세요.\n예: "${patientName} 환자 추가해줘 생년월일 YYYY-MM-DD 성별 남/여"` };
   }
 
   if (result.status === "multiple") {
@@ -389,6 +533,33 @@ export async function processFunctionCall(
         patient_name: patient.name as string,
         updates,
         previous,
+      };
+      return { type: "blocks", blocks: buildConfirmationBlocks(action) };
+    }
+
+    case "create_appointment": {
+      const date = args.appointment_date as string;
+      const startTime = args.start_time as string;
+      if (!date || !startTime) {
+        return { type: "text", text: "예약에는 날짜와 시간이 필요합니다." };
+      }
+      let endTime = args.end_time as string | undefined;
+      if (!endTime) {
+        // Default 30 minutes after start
+        const [h, m] = startTime.split(":").map(Number);
+        const totalMin = h * 60 + m + 30;
+        endTime = `${String(Math.floor(totalMin / 60)).padStart(2, "0")}:${String(totalMin % 60).padStart(2, "0")}`;
+      }
+      const apptNotes = args.notes as string | undefined;
+      const action: SlackAction = {
+        action: "create_appointment",
+        clinic_id: clinicId,
+        patient_id: patient.id,
+        patient_name: patient.name as string,
+        appointment_date: date,
+        start_time: startTime,
+        end_time: endTime,
+        ...(apptNotes ? { notes: apptNotes } : {}),
       };
       return { type: "blocks", blocks: buildConfirmationBlocks(action) };
     }
