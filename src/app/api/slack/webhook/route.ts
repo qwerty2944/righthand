@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse, after } from "next/server";
 import crypto from "crypto";
 import { createAdminClient } from "@/shared/lib/supabase/admin";
-import { askGemini } from "@/shared/lib/gemini";
+import { askGeminiWithTools } from "@/shared/lib/gemini";
+import { CLINIC_TOOLS, processFunctionCall, type ProcessResult } from "@/shared/lib/slack-actions";
 
 function verifySlackSignature(request: NextRequest, body: string): boolean {
   const signingSecret = process.env.SLACK_SIGNING_SECRET;
@@ -30,6 +31,49 @@ async function postSlackMessage(
   channel: string,
   threadTs: string,
   text: string,
+): Promise<string | null> {
+  const res = await fetch("https://slack.com/api/chat.postMessage", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${botToken}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      channel,
+      thread_ts: threadTs,
+      text,
+    }),
+  });
+  const data = await res.json();
+  return data.ts ?? null;
+}
+
+async function updateSlackMessage(
+  botToken: string,
+  channel: string,
+  messageTs: string,
+  text: string,
+): Promise<void> {
+  await fetch("https://slack.com/api/chat.update", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${botToken}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      channel,
+      ts: messageTs,
+      text,
+    }),
+  });
+}
+
+async function postSlackBlocks(
+  botToken: string,
+  channel: string,
+  threadTs: string,
+  text: string,
+  blocks: any[],
 ): Promise<void> {
   await fetch("https://slack.com/api/chat.postMessage", {
     method: "POST",
@@ -41,6 +85,7 @@ async function postSlackMessage(
       channel,
       thread_ts: threadTs,
       text,
+      blocks,
     }),
   });
 }
@@ -176,18 +221,34 @@ async function handleQuestion(
       return;
     }
 
+    // Send loading message first
+    const loadingTs = await postSlackMessage(
+      botToken,
+      event.channel,
+      event.ts,
+      ":hourglass_flowing_sand: 답변을 생성하고 있습니다...",
+    );
+
     const query = event.text;
     const clinicData = await fetchClinicData(admin, clinicId, query);
 
-    const prompt = `당신은 병원 관리 시스템의 AI 어시스턴트입니다. 슬랙에서 의료진이 질문하면 환자 데이터를 기반으로 정확하고 간결하게 답변합니다.
+    const prompt = `당신은 병원 관리 시스템의 AI 어시스턴트입니다. 조회 질문에 답변하고, 데이터 변경 요청은 반드시 function call로 처리합니다.
 
-규칙:
+중요 - Function Calling 규칙:
+- 환자 정보 변경 요청(전화번호, 이메일, 주소, 메모, 생년월일, 성별 등) → 반드시 update_patient 함수를 호출하세요
+- 진료기록 작성/생성 요청 → 반드시 create_medical_record 함수를 호출하세요
+- 진료기록 수정 요청 → 반드시 update_medical_record 함수를 호출하세요
+- "변경", "수정", "바꿔", "고쳐", "업데이트" 등의 키워드가 있으면 무조건 function call을 사용하세요
+- 절대로 "변경할 수 없습니다", "지원하지 않습니다"라고 텍스트로 답변하지 마세요. 위 함수를 호출하세요.
+
+일반 규칙:
 - 한국어로 답변
 - 간결하고 핵심만 전달 (슬랙 메시지에 적합하게)
 - 데이터에 없는 내용은 추측하지 말고 "해당 정보가 없습니다"라고 답변
 - 나이 질문 시 생년월일로 계산 (오늘: ${new Date().toISOString().slice(0, 10)})
 - 민감 정보는 주의해서 다루되, 의료진의 업무 질문이므로 필요한 정보는 제공
 - @멘션 태그(<@...>)는 무시하고 질문 내용에만 집중
+- "88년 2월 11일" 같은 표현은 "1988-02-11" 형식으로 변환하세요
 
 [병원 데이터]
 ${clinicData}
@@ -195,8 +256,47 @@ ${clinicData}
 [질문]
 ${query}`;
 
-    const answer = await askGemini(prompt);
-    await postSlackMessage(botToken, event.channel, event.ts, answer);
+    const geminiResult = await askGeminiWithTools(prompt, CLINIC_TOOLS);
+
+    if (geminiResult.type === "functionCall") {
+      // Remove loading message
+      if (loadingTs) {
+        await updateSlackMessage(botToken, event.channel, loadingTs, "처리 중...");
+      }
+
+      const actionResult: ProcessResult = await processFunctionCall(
+        geminiResult.name,
+        geminiResult.args,
+        clinicId,
+      );
+
+      if (actionResult.type === "blocks") {
+        // Delete loading message and post blocks
+        if (loadingTs) {
+          await updateSlackMessage(botToken, event.channel, loadingTs, " ");
+        }
+        await postSlackBlocks(
+          botToken,
+          event.channel,
+          event.ts,
+          "변경 사항을 확인해주세요.",
+          actionResult.blocks,
+        );
+      } else {
+        if (loadingTs) {
+          await updateSlackMessage(botToken, event.channel, loadingTs, actionResult.text);
+        } else {
+          await postSlackMessage(botToken, event.channel, event.ts, actionResult.text);
+        }
+      }
+    } else {
+      // Text response - existing flow
+      if (loadingTs) {
+        await updateSlackMessage(botToken, event.channel, loadingTs, geminiResult.text);
+      } else {
+        await postSlackMessage(botToken, event.channel, event.ts, geminiResult.text);
+      }
+    }
   } catch (err: unknown) {
     console.error("handleQuestion error:", err);
     const message = err instanceof Error ? err.message : String(err);
